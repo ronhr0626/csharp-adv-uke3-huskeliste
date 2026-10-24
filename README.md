@@ -1,97 +1,152 @@
-# CSharp Adv – Uke 2: Docker og containere
+@'
+# CSharp Adv – Week 3: Who shall pass? (JWT)
 
-Containerisering av et eksisterende To-do-API (TaskService) med Docker og Docker Compose. API-et lagrer data i PostgreSQL via EF Core, og trafikken går inn gjennom Traefik som reverse proxy.
+A to-do API with login and JWT.
 
-## Tjenester
+- Users register and log in to get a token.
+- Each user only sees and changes their own tasks.
+- Builds on week 2 (Docker, Traefik, PostgreSQL, EF Core).
 
-| Tjeneste | Image | Port (utenfra) | Beskrivelse |
+## Authentication flow
+
+The diagram is in `Excalidraw/AuthFlow.excalidraw` (and as an image in `Excalidraw/AuthFlow.png`). It shows the four roles:
+
+| Role | In this project |
+|---|---|
+| **Resource Owner** | The user (e.g. daddy) who owns their tasks |
+| **Client** | Scalar or curl, which sends the requests |
+| **Identity Provider** | `AuthController` (`/auth/register` and `/auth/login`), which checks the password and creates the token |
+| **Resource Server** | `TaskController` (`/tasks`), which reads the token and gives access to the right data |
+
+```
+1. POST /auth/register  →  the user is saved with a BCrypt hash of the password
+2. POST /auth/login     →  the password is verified and the API returns a JWT
+3. The client sends     Authorization: Bearer <token>
+4. TaskController reads "sub" (user id) from the token
+5. Service and repository filter on that id
+```
+
+## Data ownership rules
+
+1. Two users can both have a task called "buy milk", but each user only sees their own tasks.
+2. A user can only change or delete their own tasks.
+3. Without a valid token, no tasks can be reached at all.
+
+Another user's task gives **404 Not Found**, not 403. The user should not even know the task exists.
+
+## Endpoints
+
+| Method | Path | Token | Response |
 |---|---|---|---|
-| `traefik` | `traefik:v3.6` | `8000` (trafikk), `8081` (dashbord) | Reverse proxy som ruter trafikk til API-et |
-| `api` | Bygges fra `TaskService.Api/Dockerfile` | – (kun via Traefik) | ASP.NET Core Web API |
-| `db` | `postgres:16` | `5432` | PostgreSQL-database `tasks` |
-| `pgadmin` | `dpage/pgadmin4` | `5050` | Webgrensesnitt for å inspisere databasen |
+| `POST` | `/auth/register` | No | `201` created, `400` missing fields, `409` username taken |
+| `POST` | `/auth/login` | No | `200` with `{ "token": "..." }`, `401` wrong username or password |
+| `GET` | `/auth/token` | Yes | `200` with header and claims from the token, `400` unreadable token |
+| `GET` | `/tasks` | Yes | `200` own tasks only |
+| `POST` | `/tasks` | Yes | `200` task is saved with the user's id |
+| `PATCH` | `/tasks/{id}/complete` | Yes | `204` done, or `404` if the task is not yours |
+| `DELETE` | `/tasks/{id}` | Yes | `204` done, or `404` if the task is not yours |
 
-## Portvalg
+All `/tasks` endpoints return `401 Unauthorized` without a valid token.
 
-- **8000 i stedet for 80 for Traefik:** Port 80 er ofte opptatt på Windows (IIS, Skype, andre tjenester). For å unngå konflikter lytter Traefik på port 80 *inne i* containeren, men eksponeres på **8000** utenfra.
-- **8081 for Traefik-dashbordet:** Traefik bruker 8080 internt for dashbordet. Det mappes til 8081 utenfra.
-- **API-et har ingen egen port utenfra:** All trafikk skal gå gjennom Traefik, så API-et eksponeres bevisst ikke direkte. Internt lytter API-et på port 80.
-- **Traefik v3.6:** Eldre Traefik-versjoner er ikke kompatible med Docker Engine 29.
+## JWT
 
-## Arkitektur
+- The token is signed with **HS256** and a secret key from `appsettings.json` (`Jwt:Secret`).
+- Claims: `sub` = user id (GUID), `unique_name` = username, `exp` = expiry time.
+- The token lasts 60 minutes (`Jwt:ExpiresMinutes`).
+- The key in `appsettings.json` is for local development only.
 
-```
-Klient → Traefik (:8000) → API → TaskService → ITaskRepository → EfTaskRepository → PostgreSQL
-```
+## Passwords
 
-- **Service** er kun avhengig av `ITaskRepository`, ikke av EF Core eller PostgreSQL.
-- **`EfTaskRepository`** brukes når API-et kjører, og lagrer i PostgreSQL.
-- **`FakeTaskRepository`** brukes fortsatt i unit-testene.
+- Passwords are never stored in plain text.
+- `PasswordHasher` uses **BCrypt.Net-Next**.
+- Every hash has its own random salt, so the same password gives different hashes.
 
-## Kom i gang
+## Getting started
 
-Krever **Docker Desktop**.
+Requires **Docker Desktop**.
 
 ```powershell
 docker compose up --build
 ```
 
-EF Core-migrationen kjøres automatisk ved oppstart (`Database.Migrate()` i `Program.cs`), så tabellen opprettes uten manuelle steg.
+Migrations run automatically on startup, so the `Tasks` and `Users` tables are created by themselves.
 
-| Hva | Adresse |
+| What | Address |
 |---|---|
-| API (via Traefik) | http://localhost:8000/tasks |
+| Scalar (API testing) | http://localhost:8000/scalar |
 | Health check | http://localhost:8000/health |
-| Scalar (API-test) | http://localhost:8000/scalar |
-| Traefik-dashbord | http://localhost:8081 |
+| Traefik dashboard | http://localhost:8081 |
 | pgAdmin | http://localhost:5050 |
+
+## Testing in Scalar
+
+1. `POST /auth/register` with `{ "username": "daddy", "password": "secret1234" }`
+2. `POST /auth/login` with the same body. Copy the token (the text between the quotes).
+3. Paste the token into **Authentication → Bearer Token**.
+4. `GET /auth/token` shows `sub` and `unique_name`.
+5. `POST /tasks` with `{ "title": "Buy milk" }`, then `GET /tasks`.
+6. Register and log in another user (e.g. mommy), switch token and repeat. Each user only sees their own "Buy milk".
+
+## Testing with curl
+
+```powershell
+$token = "<token from /auth/login>"
+curl.exe -i "http://localhost:8000/tasks" -H "Authorization: Bearer $token"
+curl.exe -i -X DELETE "http://localhost:8000/tasks/<id of another user's task>" -H "Authorization: Bearer $token"
+curl.exe -i "http://localhost:8000/tasks"
+```
+
+Expected: `200` with own tasks, `404` on another user's task and `401` without a token.
 
 ## pgAdmin
 
-**Innlogging:** `admin@kh.com` / `admin`
+**Login:** `admin@kh.com` / `admin`
 
-**Koble til databasen** (Add New Server → Connection):
+**Connect to the database** (Add New Server → Connection):
 
-| Felt | Verdi |
+| Field | Value |
 |---|---|
 | Host name/address | `db` |
 | Port | `5432` |
-| Maintenance database | `tasks` |
+| Maintenance database | `postgres` |
 | Username | `postgres` |
 | Password | `postgres` |
 
-Host er `db` (tjenestenavnet i Compose) og ikke `localhost`, fordi pgAdmin kjører i sin egen container.
+Check in the Query Tool on the `tasks` database:
 
-Data ligger under **tasks → Schemas → public → Tables → Tasks**.
+```sql
+SELECT "Id", "Title", "IsCompleted", "UserId" FROM "Tasks";
+SELECT "Id", "Username", "PasswordHash" FROM "Users";
+```
 
-## Verifisering
+The tasks have different `UserId` values, and `PasswordHash` starts with `$2a$11$` (BCrypt).
 
-1. `POST /tasks` med `{ "title": "Kjøp melk" }` lagrer en oppgave.
-2. `GET /tasks` henter den fra PostgreSQL.
-3. Oppgaven er synlig i pgAdmin.
-4. `docker compose restart api`, så `GET /tasks` igjen: dataene er der fortsatt.
-5. `docker ps` viser `api` og `db` som `(healthy)`.
+## Tests
 
-## Tester
-
-Health check-testen sender en forespørsel til `http://localhost:8000/health`, så `docker compose up` må kjøre før testene:
+- The unit tests use `FakeTaskRepository`.
+- They check that a user cannot see, complete or delete another user's tasks.
+- The health check test needs `docker compose up` to be running.
 
 ```powershell
 dotnet test
 ```
 
-## Prosjektstruktur
+## Project structure
 
 ```
+├── Excalidraw/            AuthFlow.excalidraw, AuthFlow.png
 ├── TaskService.Api
-│   ├── Controllers/       TaskController
+│   ├── Controllers/       AuthController, TaskController
 │   ├── Data/              TaskDbContext
-│   ├── DTO/               CreateTaskRequest
+│   ├── DTO/               CreateTaskRequest, RegisterRequest, LoginRequest
+│   ├── Models/            User, TokenInfo
+│   ├── Services/          JwtService, PasswordHasher, TokenReader (+ interfaces)
 │   ├── Repositories/      EfTaskRepository
-│   ├── Migrations/        EF Core-migrations
+│   ├── Migrations/        EF Core migrations
 │   ├── Program.cs
 │   └── Dockerfile
 ├── TaskService.Core       TaskService, TaskItem, ITaskRepository, FakeTaskRepository
-├── TaskService.test       Unit-tester
+├── TaskService.test       Unit tests
 └── docker-compose.yaml
 ```
+'@ | Set-Content -Encoding utf8 README.md
