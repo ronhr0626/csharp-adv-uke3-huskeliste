@@ -18,14 +18,16 @@ public class EfTaskRepository : ITaskRepository
         _db.SaveChanges();
     }
 
-    public List<TaskItem> GetAll()
+    public List<TaskItem> GetAll(Guid userId)
     {
-        return _db.Tasks.ToList();
+        return _db.Tasks
+            .Where(t => t.UserId == userId)
+            .ToList();
     }
 
-    public TaskItem? GetById(Guid id)
+    public TaskItem? GetById(Guid id, Guid userId)
     {
-        return _db.Tasks.FirstOrDefault(t => t.Id == id);
+        return _db.Tasks.FirstOrDefault(t => t.Id == id && t.UserId == userId);
     }
 
     public void Delete(TaskItem task)

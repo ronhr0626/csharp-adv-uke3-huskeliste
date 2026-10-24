@@ -1,42 +1,89 @@
-namespace TaskService.Api.Controllers;
-
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using TaskService.Api.DTO;
+using TaskService.Api.Services;
+
+namespace TaskService.Api.Controllers;
 
 [ApiController]
 [Route("tasks")]
 public class TaskController : ControllerBase
 {
     private readonly Core.TaskService taskManager;
+    private readonly ITokenReader tokenReader;
 
-    public TaskController(Core.TaskService taskService)
+    public TaskController(Core.TaskService taskService, ITokenReader tokenReader)
     {
         taskManager = taskService;
+        this.tokenReader = tokenReader;
+    }
+
+    private Guid? GetUserId()
+    {
+        return tokenReader.GetUserId(Request.Headers.Authorization.ToString());
     }
 
     [HttpGet]
-    public IEnumerable<TaskItem> GetTasks()
+    public IActionResult GetTasks()
     {
-        return taskManager.GetTasks();
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        return Ok(taskManager.GetTasks(userId.Value));
     }
 
     [HttpPost]
-    public TaskItem AddTask([FromBody] CreateTaskRequest request)
+    public IActionResult AddTask([FromBody] CreateTaskRequest request)
     {
-        return taskManager.AddTask(request.Title);
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        return Ok(taskManager.AddTask(request.Title, userId.Value));
     }
 
     [HttpPatch("{id}/complete")]
     public IActionResult CompleteTask(Guid id)
     {
-        taskManager.CompleteTask(id);
-        return NoContent();
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        // The domain decides if the task exists for this user. The controller only maps it to HTTP.
+        try
+        {
+            taskManager.CompleteTask(id, userId.Value);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
     }
 
     [HttpDelete("{id}")]
     public IActionResult DeleteTask(Guid id)
     {
-        taskManager.DeleteTask(id);
-        return NoContent();
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            taskManager.DeleteTask(id, userId.Value);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
     }
 }

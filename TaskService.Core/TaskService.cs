@@ -1,4 +1,5 @@
 ﻿namespace TaskService.Core;
+
 using global::TaskService.Core.Repository;
 
 public class TaskService
@@ -10,39 +11,31 @@ public class TaskService
         this.repository = repository;
     }
 
-    public TaskItem AddTask(string title)
+    public TaskItem AddTask(string title, Guid userId)
     {
-        var task = new TaskItem(title);
+        var task = new TaskItem(title, userId);
         repository.Add(task);
         return task;
     }
 
-    public List<TaskItem> GetTasks()
+    public List<TaskItem> GetTasks(Guid userId)
     {
-        return repository.GetAll();
+        return repository.GetAll(userId);
     }
 
-    public void CompleteTask(Guid id)
+    public void CompleteTask(Guid id, Guid userId)
     {
-        var task = repository.GetById(id);
-
-        if (task == null)
-        {
-            throw new KeyNotFoundException("Task was not found");
-        }
+        var task = repository.GetById(id, userId)
+            ?? throw new KeyNotFoundException("Task was not found");
 
         task.IsCompleted = true;
         repository.Update(task);
     }
 
-    public void DeleteTask(Guid id)
+    public void DeleteTask(Guid id, Guid userId)
     {
-        var task = repository.GetById(id);
-
-        if (task == null)
-        {
-            throw new KeyNotFoundException("Task was not found");
-        }
+        var task = repository.GetById(id, userId)
+            ?? throw new KeyNotFoundException("Task was not found");
 
         repository.Delete(task);
     }
