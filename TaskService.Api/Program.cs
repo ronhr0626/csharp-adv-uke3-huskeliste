@@ -44,6 +44,7 @@ builder.Services.AddScoped<ITaskRepository, EfTaskRepository>();
 builder.Services.AddScoped<TaskServiceManager>();
 builder.Services.AddScoped<ITokenReader, TokenReader>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+builder.Services.AddScoped<IJwtService, JwtService>();
 
 var app = builder.Build();
 if (app.Environment.IsDevelopment())

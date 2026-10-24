@@ -13,12 +13,14 @@ public class AuthController : ControllerBase
     private readonly ITokenReader _tokenReader;
     private readonly IPasswordHasher _passwordHasher;
     private readonly TaskDbContext _db;
+    private readonly IJwtService _jwtService;
 
-    public AuthController(ITokenReader tokenReader, IPasswordHasher passwordHasher, TaskDbContext db)
+    public AuthController(ITokenReader tokenReader, IPasswordHasher passwordHasher, TaskDbContext db, IJwtService jwtService)
     {
         _tokenReader = tokenReader;
         _passwordHasher = passwordHasher;
         _db = db;
+        _jwtService = jwtService;
     }
 
     [HttpPost("register")]
@@ -48,6 +50,21 @@ public class AuthController : ControllerBase
 
         // Never return the password hash to the client
         return Created($"/auth/users/{user.Id}", new { user.Id, user.Username });
+    }
+
+    [HttpPost("login")]
+    public IActionResult Login([FromBody] LoginRequest request)
+    {
+        var user = _db.Users.FirstOrDefault(u => u.Username == request.Username.Trim());
+
+        // Same answer for wrong username and wrong password, so nobody can guess which usernames exist
+        if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+        {
+            return Unauthorized("Wrong username or password");
+        }
+
+        var token = _jwtService.CreateToken(user);
+        return Ok(new { token });
     }
 
     [HttpGet("token")]
