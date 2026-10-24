@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using TaskService.Api.Data;
@@ -43,6 +43,7 @@ builder.Services.AddDbContext<TaskDbContext>(options =>
 builder.Services.AddScoped<ITaskRepository, EfTaskRepository>();
 builder.Services.AddScoped<TaskServiceManager>();
 builder.Services.AddScoped<ITokenReader, TokenReader>();
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 var app = builder.Build();
 if (app.Environment.IsDevelopment())
